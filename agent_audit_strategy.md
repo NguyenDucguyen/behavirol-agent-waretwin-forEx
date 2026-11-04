@@ -1,267 +1,221 @@
-# 🔍 WareTwin Agent Audit & Chiến Lược Bổ Sung
+# 🔍 WareTwin Agent Audit & Chiến Lược Triển Khai Toàn Diện (Backend + UI)
 
-## Tổng quan kết quả kiểm tra codebase
-
-> Kiểm tra các file: `backend/app/sim/engine.py` (1566 dòng), `backend/app/ai/vlm.py`, `backend/app/ai/copilot.py`, `backend/app/main.py`
-
----
-
-## 1. Cargo AMR Robot — **ĐÃ CÓ (Một phần)**
-
-**Trường phái**: Hybrid BDI + FSM  
-**Metamodel Core cần**: `GOAL_OBJECTIVE`, `PLAN_PROCESS`, `MEANS_END_LINK`, `PREEMPTIVE_INTERRUPT`
-
-### ✅ Đã có trong code
-
-| Thành phần Metamodel | Mapping trong code | File / Dòng |
-|---|---|---|
-| `PLAN_PROCESS` | FSM states: `NAVIGATING → PICKING → TRANSPORTING → DELIVERING` | `engine.py` L762–881 |
-| `MEANS_END_LINK` | `_plan_to()` → A* pathfinding → goal location | `engine.py` L948–1002 |
-| `PREEMPTIVE_INTERRUPT` | `OBSTACLE_DETECTED` → `REPLANNING`, `LOW_BATTERY` → `TASK_TRANSFER` | `engine.py` L870–878, L839 |
-| BDI Belief | `RobotRt` runtime state (perception, pending, front_id) | `engine.py` L74–91 |
-| BDI Desire | `current_task_id`, `destination` | `engine.py` L149–156 |
-
-### ❌ Còn thiếu / Chưa tường minh
-
-| Thành phần Metamodel | Vấn đề | Mức độ |
-|---|---|---|
-| `GOAL_OBJECTIVE` | Không có class/object tường minh thể hiện "mục tiêu" — goal chỉ ẩn trong `current_task_id` và `phase` string | 🔴 Cao |
-| `MEANS_END_LINK` tường minh | Không có cấu trúc data liên kết goal → plan → action có thể truy vết được | 🟡 Trung bình |
-| BDI Intention stack | Không có danh sách intentions có thể bị preempt và resume — chỉ có 1 level pending | 🟡 Trung bình |
-| Deliberation cycle rõ ràng | Vòng BDI (Perceive → Deliberate → Act) không được phân tách; tất cả gộp trong `_step_robot()` | 🟡 Trung bình |
+> **Mục tiêu**: Nâng cấp hệ thống 4 Agent trong WareTwin theo chuẩn **Model-Driven Engineering (MDE)** và **Explainable Multi-Agent Systems (XMAS)**.
+> **Nguyên tắc cốt lõi (Full-Stack Observability)**: Mỗi trường phái suy luận khi được bổ sung vào Backend đều **BẮT BUỘC phải có đại diện trực quan tương ứng trên giao diện người dùng (Frontend 3D HUD & Panels)** để phục vụ bằng chứng thực nghiệm cho bài báo khoa học.
 
 ---
 
-## 2. Fleet Manager — **ĐÃ CÓ (Khá đầy đủ)**
+## I. Tổng quan kết quả kiểm tra Codebase hiện tại
 
-**Trường phái**: Utility-based (tối ưu đa mục tiêu)  
-**Metamodel Core cần**: `OBJECTIVE`, `ContextVariable (trọng số)`, `ReasoningProfile (UTILITY)`
+Kiểm tra đối chiếu giữa **Metamodel Core (`metamodelBehavirolAg.ecore`)** và mã nguồn backend (`app/sim/engine.py`, `app/sim/bt_navigator.py`, `app/ai/vlm.py`, `app/ai/copilot.py`):
 
-### ✅ Đã có trong code
-
-| Thành phần Metamodel | Mapping trong code | File / Dòng |
-|---|---|---|
-| `OBJECTIVE` (multi) | Task assignment tối ưu theo 5 mục tiêu cùng lúc | `engine.py` L317–381 |
-| `ContextVariable (trọng số)` | `weights = {"distance": 0.35, "battery": 0.25, "workload": 0.15, "congestion": 0.15, "health": 0.10}` | `engine.py` L324 |
-| `ReasoningProfile (UTILITY)` | Score function kết hợp tuyến tính 5 biến | `engine.py` L353–355 |
-| Decision logging | `recent_decisions` với `candidates`, `weights`, `reasons` | `engine.py` L376–380 |
-| Copilot rule-based | `rule_based_answer()` tái hiện logic Fleet Manager bằng rule | `copilot.py` L116–134 |
-
-### ❌ Còn thiếu
-
-| Thành phần Metamodel | Vấn đề | Mức độ |
-|---|---|---|
-| Dynamic weight adaptation | Trọng số cứng coded — không thay đổi theo context (giờ cao điểm, sự cố, v.v.) | 🟡 Trung bình |
-| `ReasoningProfile` object | Không có object thể hiện tường minh reasoning profile; chỉ là dict cứng | 🟢 Thấp |
-| Multi-objective Pareto front | Chỉ dùng linear scalarization, không có Pareto trade-off analysis | 🟢 Thấp |
+| Agent | Trường phái Suy luận | Trạng thái Backend | Trạng thái UI | Mức độ thiếu hụt |
+|---|---|---|---|---|
+| **1. Cargo AMR Robot** | **Hybrid BDI + FSM** | 🟡 Có FSM, thiếu BDI data model tường minh | 🔴 Chỉ hiện FSM thô (`NAVIGATING`) | Thiếu Intentions stack & UI Mental State |
+| **2. Fleet Manager** | **Utility-Based Optimization** | 🟢 Đầy đủ scoring function & decision log | 🟢 Đã có `OpsDrawer` hiển thị score & lý do | Thiếu Dynamic Adaptive Weights & UI Profile |
+| **3. Navigation & Safety** | **Behavior Tree (BT)** | 🟢 Đã tạo `bt_navigator.py` (26 nodes) | 🔴 Chưa hiển thị cây BT lên UI | Cần gắn Active BT Node lên Robot Inspector |
+| **4. Surveillance Camera** | **Reactive FSM / VLM** | 🟡 Có VLM mock/real, nhưng FSM chỉ 2 state | 🟡 Có Live Panel nhưng FSM chỉ hiện ONLINE/OFFLINE | Thiếu Multi-state FSM (`ALERT_MODE`, `TRACKING`) |
 
 ---
 
-## 3. Navigation & Safety — **ĐÃ CÓ (Một phần, nhưng thiếu BT)**
+## II. Chiến lược chi tiết theo từng Agent (Mô hình 3 tầng: Backend ➔ Schema ➔ UI)
+
+```
+┌─────────────────────────────────┐
+│     Backend Reasoning Logic     │  (bdi_robot.py, bt_navigator.py, vlm.py, engine.py)
+└────────────────┬────────────────┘
+                 │ serializes into
+┌────────────────▼────────────────┐
+│   TwinState Contract & Schema   │  (app/schema.py ──WebSocket──> twin_state.ts)
+└────────────────┬────────────────┘
+                 │ renders onto
+┌────────────────▼────────────────┐
+│   Frontend UI Observability     │  (SelectedRobotPanel, LiveCameraPanel, OpsDrawer)
+└─────────────────────────────────┘
+```
+
+---
+
+### Giai đoạn 1 — Navigation & Safety Agent (Behavior Tree)
 
 **Trường phái**: Behavior Tree (BT)  
-**Metamodel Core cần**: `COMPOSITE_GROUP`, `FALLBACK_SELECTOR`, `SEQUENTIAL`, `subUnits`
+**Metamodel Core**: `COMPOSITE_GROUP`, `FALLBACK_SELECTOR`, `SEQUENTIAL`, `subUnits`, `LogicalCondition`
 
-### ✅ Đã có trong code
+#### 1. Backend & Schema Implementation
+* **Backend (`app/sim/bt_navigator.py` - Đã có)**:
+  * 26 nodes: `NavSafetyRoot` (`FALLBACK_SELECTOR`) ➔ `ExecuteMission` (`SEQUENTIAL`) ➔ `SafetyLayer` & `Navigate`.
+  * Hỗ trợ `dry_run=True` (Shadow mode / Observer) và `dry_run=False` (Active Controller).
+* **Schema Contract (`app/schema.py` & `frontend/src/schema/twin_state.ts`)**:
+  * Thêm vào `RobotState`:
+    ```python
+    bt_status: Optional[str] = None       # "RUNNING", "SUCCESS", "FAILURE"
+    bt_active_node: Optional[str] = None  # "follow_path", "emergency_stop", "replan_astar", "back_off"
+    ```
 
-| Thành phần | Mapping trong code | File / Dòng |
-|---|---|---|
-| Sequential navigation | A* path following → cell-by-cell movement | `engine.py` L1004–1119 |
-| Fallback cơ bản | `OBSTACLE_DETECTED → REPLANNING → fallback path` | `engine.py` L870–878 |
-| Safety stop | LiDAR virtual sensor → `PERC_STOP` → velocity = 0 | `engine.py` L1025–1037 |
-| Collision avoidance | OBB overlap + `_back_off()` | `engine.py` L1086–1154 |
-| Zone blocking | `blocked_zones` → A* cost penalty | `engine.py` L1249–1261 |
-
-### ❌ Còn thiếu / Thiếu nhiều
-
-| Thành phần Metamodel | Vấn đề | Mức độ |
-|---|---|---|
-| `COMPOSITE_GROUP` tường minh | Không có cấu trúc BT node — logic phân tán trong `_step_robot()` và `_move_along_path()` | 🔴 Cao |
-| `FALLBACK_SELECTOR` | Fallback chain (try A* → try simpler path → back-off → wait) không được cấu trúc như BT node | 🔴 Cao |
-| `SEQUENTIAL` node | Sequential behavior nhúng trực tiếp trong Python if/elif, không trace-able | 🟡 Trung bình |
-| `subUnits` | Không có khái niệm sub-behavior unit riêng biệt (e.g., "Avoid obstacle" là một BT subtree) | 🟡 Trung bình |
-| BT tick/status protocol | Không có `SUCCESS`/`FAILURE`/`RUNNING` trạng thái trả về như BT chuẩn | 🟡 Trung bình |
-
----
-
-## 4. Surveillance Camera (VLM) — **ĐÃ CÓ (Đủ dùng)**
-
-**Trường phái**: Reactive FSM / Rule-based  
-**Metamodel Core cần**: `REACTIVE_STATE`, `StimulusEvent`, `STATE_TRANSITION`, `LogicalCondition`
-
-### ✅ Đã có trong code
-
-| Thành phần Metamodel | Mapping trong code | File / Dòng |
-|---|---|---|
-| `REACTIVE_STATE` | Camera states: `ONLINE`, `OFFLINE` | `engine.py` L165 |
-| `StimulusEvent` | VLM response: `human_detected`, `obstacle`, `spill`, `none` | `vlm.py` L29 |
-| `STATE_TRANSITION` | `human_detected + blocked + confidence ≥ 0.7` → `block_zone()` | `main.py` L544–547 |
-| `LogicalCondition` | `obs["blocked"] and obs["confidence"] >= 0.7 and event == "human_detected"` | `main.py` L544 |
-| Simulated fallback | `simulated_observation()` khi không có LLM key | `vlm.py` L77–83 |
-| Real VLM | GPT-4o-mini vision với JSON schema | `vlm.py` L54–74 |
-
-### ❌ Còn thiếu
-
-| Thành phần Metamodel | Vấn đề | Mức độ |
-|---|---|---|
-| Multi-state FSM | Camera chỉ có 2 trạng thái (ONLINE/OFFLINE); thiếu `ALERT_MODE`, `TRACKING` | 🟡 Trung bình |
-| Continuous event stream | VLM chỉ được trigger khi frontend gọi API, không tự chủ polling | 🟡 Trung bình |
-| Cross-camera correlation | Không có logic kết hợp quan sát từ nhiều camera | 🟢 Thấp |
+#### 2. Frontend UI Observability (Hiển thị lên màn hình)
+* **Vị trí**: Panel bên phải khi click chọn Robot (`frontend/src/components/panels/RightPanels.tsx` ➔ `SelectedRobotPanel`).
+* **UI Mockup**:
+  ```
+  ┌──────────────────────────────────────────────┐
+  │ R04 · F1                              Active │
+  │ [Robot 3D Thumb]                             │
+  │ Battery: 88% [████████████░░░]               │
+  │ State: NAVIGATING · 1.50 m/s · ETA 14s       │
+  │ Perception: CLEAR · ahead 4.0 m              │
+  ├──────────────────────────────────────────────┤
+  │ 🌳 REASONING: BEHAVIOR TREE                  │
+  │ Status: [ RUNNING ] (Color: #22d3ee)         │
+  │ Active Branch: SafetyLayer ➔ ClearPath       │
+  │ Leaf Action: ⚡ follow_path                  │
+  │ Fallback Chain: [✓ PathClear] [— Replan]     │
+  └──────────────────────────────────────────────┘
+  ```
+* **Khi có vật cản LiDAR hoặc tắc nghẽn**:
+  * Trạng thái đổi sang màu vàng: `[ STOPPED ] Active: LidarResponse ➔ emergency_stop`.
+  * Trạng thái đổi sang màu tím: `[ REPLANNING ] Active: Navigate ➔ Replan ➔ replan_astar`.
 
 ---
 
-## 📊 Bảng tổng kết tình trạng Agent
+### Giai đoạn 2 — Cargo AMR Robot (Hybrid BDI + FSM)
 
-| Agent | Tình trạng | Reasoning Paradigm thực tế trong code | Gap với Metamodel |
+**Trường phái**: Hybrid BDI (Belief-Desire-Intention) + Finite State Machine  
+**Metamodel Core**: `GOAL_OBJECTIVE`, `PLAN_PROCESS`, `MEANS_END_LINK`, `PREEMPTIVE_INTERRUPT`
+
+#### 1. Backend & Schema Implementation
+* **Tạo file mới**: `backend/app/sim/bdi_robot.py`
+  * `Belief`: `{position, battery, current_load, nearby_obstacles, zone_congestions}`.
+  * `Goal` (`GOAL_OBJECTIVE`): `{task_id, goal_type: "DELIVER" | "CHARGE" | "PARK", priority}`.
+  * `Intention` (`PLAN_PROCESS`): `{plan_id: "Plan_SameFloorTransport", steps: [...], current_step, interruptible: bool}`.
+  * `bdi_deliberate(beliefs, desires) -> Intention`: Vòng lặp suy luận BDI chọn kế hoạch trước khi giao cho FSM thực thi từng bước.
+* **Schema Contract (`app/schema.py` & `twin_state.ts`)**:
+  * Bổ sung trường `bdi` trong `RobotState`:
+    ```python
+    bdi: Optional[dict[str, Any]] = None
+    # {
+    #   "desire": "Complete Task #A3812",
+    #   "intention": "Plan_SameFloorTransport",
+    #   "step": "PICKING (2/5)",
+    #   "interruptible": True,
+    #   "preempted_reason": None  # "LOW_BATTERY" | "OBSTACLE_JAM"
+    # }
+    ```
+
+#### 2. Frontend UI Observability (Hiển thị lên màn hình)
+* **Vị trí**: Panel bên phải (`SelectedRobotPanel`) và Hộp thoại chi tiết Robot (`Modals.tsx` ➔ `RobotModal`).
+* **UI Mockup**:
+  ```
+  ┌──────────────────────────────────────────────┐
+  │ 🧠 COGNITIVE STATE (HYBRID BDI)              │
+  │ • Desire (Goal): Complete Task #A3812        │
+  │ • Intention: Plan_SameFloorTransport         │
+  │ • Step: [1. Move] ➔ [▶ 2. Pick] ➔ [3. Trans] │
+  │ • Interruptible: YES                         │
+  └──────────────────────────────────────────────┘
+  ```
+* **Khi bị ngắt quyền ưu tiên (`PREEMPTIVE_INTERRUPT`)**:
+  * Khi pin < 20%: Badge chuyển màu đỏ nhấp nháy: `⚠️ PREEMPTIVE INTERRUPT: LOW_BATTERY`.
+  * Intention đổi thành: `Plan_TaskHandoffAndCharge` ➔ Tự động trả Task về hàng đợi và đi sạc.
+
+---
+
+### Giai đoạn 3 — Surveillance Camera (Reactive FSM & VLM)
+
+**Trường phái**: Reactive FSM / Rule-Based Perception  
+**Metamodel Core**: `REACTIVE_STATE`, `StimulusEvent`, `STATE_TRANSITION`, `LogicalCondition`
+
+#### 1. Backend & Schema Implementation
+* **Nâng cấp `app/ai/vlm.py`**:
+  * Chuyển Camera từ 2 trạng thái (`ONLINE`, `OFFLINE`) thành **4 trạng thái FSM phản xạ**:
+    * `ONLINE`: Tuần tra giám sát góc rộng định kỳ.
+    * `ALERT_MODE`: Phát hiện bất thường ban đầu (`confidence >= 0.7`).
+    * `TRACKING`: Khẳng định mối nguy hại liên tục 2 chu kỳ ➔ Phát lệnh đóng Zone.
+    * `OFFLINE`: Sự cố phần cứng/kết nối.
+  * Tự động hóa: Background polling task kích hoạt VLM kiểm tra camera mỗi 50 ticks (5s) thay vì chờ user ấn nút.
+* **Schema Contract (`app/schema.py` & `twin_state.ts`)**:
+  * Mở rộng `CameraState`:
+    ```python
+    fsm_state: str = "ONLINE"  # "ONLINE" | "ALERT_MODE" | "TRACKING" | "OFFLINE"
+    stimulus: Optional[str] = None  # "HUMAN_DETECTED" | "OBSTACLE" | "NONE"
+    rule_action: Optional[str] = None  # "BLOCK_ZONE_B" | "CLEAR_ALERT"
+    ```
+
+#### 2. Frontend UI Observability (Hiển thị lên màn hình)
+* **Vị trí**: `frontend/src/components/panels/RightPanels.tsx` (`LiveCameraPanel`) và 3D Scene Viewport (`Cameras.tsx`).
+* **UI Mockup trên Live Camera Panel**:
+  ```
+  ┌──────────────────────────────────────────────┐
+  │ Camera · Zone B         [ ALERT_MODE ⚠️ ]    │
+  │ [Live CCTV Canvas Viewport]                  │
+  │ Stimulus: HUMAN_DETECTED (Confidence: 89%)   │
+  │ Guard Rule: conf >= 0.7 AND blocked == true │
+  │ Reactive Action: STATE_TRANSITION ➔ TRACKING │
+  │ Effect: Auto-block Zone B (duration 60s)    │
+  └──────────────────────────────────────────────┘
+  ```
+* **Hiệu ứng 3D Viewport**:
+  * Vòm nón camera (Frustum wireframe) trong 3D Scene đổi màu trực quan:
+    * Xanh lá (`ONLINE`) ➔ Vàng chớp (`ALERT_MODE`) ➔ Đỏ rực (`TRACKING`).
+
+---
+
+### Giai đoạn 4 — Fleet Manager (Adaptive Multi-Objective Utility)
+
+**Trường phái**: Utility-Based Optimization  
+**Metamodel Core**: `OBJECTIVE`, `ContextVariable (trọng số)`, `ReasoningProfile (UTILITY)`
+
+#### 1. Backend & Schema Implementation
+* **Nâng cấp `app/sim/engine.py` (`_assign_tasks`)**:
+  * Hàm tính trọng số thích ứng theo bối cảnh (`_context_weights(tick)`):
+    * Giờ cao điểm / Tắc nghẽn cao (`congestion > 0.6`): Tăng trọng số `congestion` từ `0.15 ➔ 0.35` để phân tán lộ trình.
+    * Đội xe pin yếu (> 3 robot < 30%): Tăng trọng số `battery` từ `0.25 ➔ 0.40`.
+* **Schema Contract (`app/schema.py` & `twin_state.ts`)**:
+  * Bổ sung thông tin bối cảnh vào `recent_decisions`:
+    ```python
+    context_trigger: Optional[str] = None  # "HIGH_CONGESTION_ADAPTATION" | "NOMINAL"
+    profile_name: str = "UTILITY_ADAPTIVE"
+    ```
+
+#### 2. Frontend UI Observability (Hiển thị lên màn hình)
+* **Vị trí**: Bảng điều hành AI Operations (`frontend/src/components/ops/OpsDrawer.tsx`).
+* **UI Mockup**:
+  ```
+  ┌──────────────────────────────────────────────┐
+  │ Fleet Manager Decisions                      │
+  │ Profile: UTILITY_ADAPTIVE [ Congestion Boost]│
+  │ Dynamic Weights:                             │
+  │  • Distance:   [████████░░] 30%              │
+  │  • Battery:    [██████░░░░] 20%              │
+  │  • Congestion: [██████████] 35% (+20% Boost) │
+  │  • Workload:   [███░░░░░░░] 10%              │
+  │  • Health:     [█░░░░░░░░░] 5%               │
+  │ Task #A3812 assigned to R04 (Score: 0.84)   │
+  │ Reasons: ✓ lowest congestion route (Zone C)  │
+  └──────────────────────────────────────────────┘
+  ```
+
+---
+
+## III. Bảng Ma Trận Đóng Góp Khoa Học (Dùng trực tiếp cho Paper)
+
+| Agent Archetype | Mô hình MDE (Ecore) | Triển khai Backend | Quan sát Trực quan Frontend (XAI) | Minh chứng Khoa học (Paper Contribution) |
+|---|---|---|---|---|
+| **Navigation & Safety** | `BehaviorUnit(role=COMPOSITE_GROUP)` | `bt_navigator.py` (26 nodes BT) | Panel: Active BT Node & Fallback chain | Tách bạch lớp phản xạ an toàn với dẫn đường tối ưu |
+| **Cargo AMR Robot** | `BehaviorUnit(role=GOAL_OBJECTIVE)` | `bdi_robot.py` (Belief-Desire-Intention) | Panel: BDI Mental Stack & Preemption Badge | Minh họa khả năng hủy/bàn giao việc khi gặp ngắt ưu tiên |
+| **Surveillance Camera** | `BehaviorUnit(role=REACTIVE_STATE)` | `vlm.py` (Multi-state FSM + Polling) | CCTV Panel: Chip FSM State & 3D Frustum color | Tự động hóa chu trình cảm nhận ➔ suy luận ➔ cô lập sự cố |
+| **Fleet Manager** | `ReasoningProfile(UTILITY)` | `engine.py` (`_context_weights`) | Ops Drawer: Thanh trọng số thích ứng bối cảnh | Giải thích được quyết định phân việc đa mục tiêu (XAI) |
+
+---
+
+## IV. Danh mục file cần tác động theo quy trình chuẩn
+
+| File | Tầng | Hành động | Mục đích |
 |---|---|---|---|
-| **Cargo AMR Robot** | 🟡 Một phần | FSM thuần + A\* planning (thiếu BDI deliberation tường minh) | GOAL_OBJECTIVE, Intention stack |
-| **Fleet Manager** | 🟢 Đầy đủ nhất | Utility-based scoring đúng paradigm | Weight adaptation dynamic |
-| **Navigation & Safety** | 🔴 Thiếu nhiều | Logic phân tán, không có BT structure | Toàn bộ BT node types |
-| **Surveillance Camera** | 🟢 Đủ dùng | Reactive FSM đúng paradigm, có LogicalCondition | Multi-state FSM, auto-polling |
-
----
-
-## 🎯 Chiến Lược Bổ Sung (Theo thứ tự ưu tiên)
-
-### Giai đoạn 1 — Bổ sung Navigation & Safety BT (Ưu tiên cao nhất)
-
-**Lý do**: Đây là agent thiếu cấu trúc nhất, và BT là paradigm được phân biệt rõ nhất với FSM (tránh bị reviewer hỏi "hai cái này khác nhau như thế nào?").
-
-**Tạo file**: `backend/app/sim/bt_navigator.py`
-
-```
-Cấu trúc BT đề xuất:
-Root (Selector)
-├── Sequence: "ExecuteCurrentTask"
-│   ├── Condition: has_task?
-│   ├── Selector: "Navigate"          ← FALLBACK_SELECTOR
-│   │   ├── Sequence: "NormalPath"    ← SEQUENTIAL
-│   │   │   ├── Condition: path_clear?
-│   │   │   └── Action: follow_path()
-│   │   └── Sequence: "ReplanPath"   ← FALLBACK
-│   │       ├── Action: replan_astar()
-│   │       └── Action: back_off()
-│   └── Sequence: "SafetyCheck"      ← COMPOSITE_GROUP
-│       ├── Condition: zone_not_blocked?
-│       ├── Condition: lidar_clear?
-│       └── Action: adjust_speed()
-└── Action: idle_behavior()
-```
-
-**API tích hợp**: BT.tick() được gọi từ `_step_robot()` như một layer riêng cho quyết định navigation.
-
----
-
-### Giai đoạn 2 — Tường minh hóa BDI cho Cargo AMR Robot
-
-**Lý do**: Cần phân biệt "Hybrid BDI + FSM" với "FSM thuần" — hiện tại code thiếu Belief-Desire-Intention tường minh.
-
-**Tạo file**: `backend/app/sim/bdi_robot.py`
-
-```python
-@dataclass
-class Belief:
-    position: tuple
-    battery: float
-    obstacles: list
-    zone_status: dict
-
-@dataclass  
-class Goal:          # GOAL_OBJECTIVE
-    type: str        # "DELIVER", "CHARGE", "PARK"
-    target_loc: str
-    priority: int
-    deadline_tick: int
-
-@dataclass
-class Intention:     # Active plan being executed
-    goal: Goal
-    plan: list[str]  # ["TO_SOURCE", "PICKING", "TO_DEST", "DELIVERING"]
-    current_step: int
-    interruptible: bool  # PREEMPTIVE_INTERRUPT flag
-```
-
-**Tích hợp**: `RobotRt` được mở rộng với `beliefs: Belief`, `desires: list[Goal]`, `intention: Intention`. Hàm `_step_robot()` gọi `bdi_deliberate()` trước khi chạy FSM.
-
----
-
-### Giai đoạn 3 — Multi-state FSM cho Surveillance Camera
-
-**Lý do**: Tăng số `STATE_TRANSITION` và `REACTIVE_STATE` — quan trọng cho narrative paper.
-
-**Bổ sung vào** `vlm.py`:
-
-```
-CameraFSM states:
-ONLINE → ALERT_MODE (khi detect human, confidence ≥ 0.7)
-ALERT_MODE → TRACKING (khi same zone có event lần 2)
-TRACKING → ONLINE (khi zone cleared)
-ONLINE → OFFLINE (khi inject CAMERA_OFFLINE)
-OFFLINE → ONLINE (khi clear injection)
-```
-
-**Thêm auto-polling**: Background task trong `main.py` gọi `vlm_ai.observe()` mỗi N ticks cho mỗi camera ONLINE — không cần frontend trigger.
-
----
-
-### Giai đoạn 4 — Fleet Manager dynamic weight adaptation (Optional)
-
-**Lý do**: Làm rõ `ContextVariable` biến đổi theo context.
-
-**Bổ sung nhỏ** vào `_assign_tasks()`:
-
-```python
-def _context_weights(self, tick: int) -> dict:
-    """Dynamic weight theo tình trạng hệ thống — UTILITY paradigm rõ hơn."""
-    base = {"distance": 0.35, "battery": 0.25, ...}
-    if len([r for r in robots if r["battery"] < 30]) > 3:
-        base["battery"] += 0.10  # Fleet pin yếu → ưu tiên battery hơn
-    if congestion_index > 0.7:
-        base["congestion"] += 0.10  # Tắc nghẽn cao → ưu tiên tránh vùng tắc
-    return normalize(base)
-```
-
----
-
-## 📝 Gợi ý cho Paper
-
-### Mapping rõ ràng để đưa vào paper
-
-```
-Agent                  | Paradigm      | Code Evidence
------------------------|---------------|----------------------------------
-Cargo AMR Robot        | BDI + FSM     | bdi_robot.py (Goal/Intention) + 
-                       |               | engine.py FSM states
-Fleet Manager          | Utility-based | engine.py L324 weights dict +
-                       |               | L353 score function
-Navigation & Safety    | Behavior Tree | bt_navigator.py BT nodes +
-                       |               | engine.py pathfinding
-Surveillance Camera    | Reactive FSM  | vlm.py observe() + 
-                       |               | main.py transition conditions
-```
-
-### Điểm mạnh có thể trích dẫn trong paper (đã có trong code)
-
-1. **Fleet Manager**: Decision log `recent_decisions` với `weights` và `reasons` → **explainable AI**
-2. **AMR Robot**: `PREEMPTIVE_INTERRUPT` thực sự có trong code (LOW_BATTERY interrupt task)
-3. **VLM Camera**: Hybrid real LLM + simulated fallback → **graceful degradation**
-4. **Navigation**: Virtual LiDAR perception + physical OBB collision → **layered safety**
-
----
-
-## 🗂 Files cần tạo mới
-
-| File | Mục đích | Dòng ước tính |
-|---|---|---|
-| `backend/app/sim/bt_navigator.py` | BT node classes + Navigator BT tree | ~150 dòng |
-| `backend/app/sim/bdi_robot.py` | Belief, Goal, Intention dataclasses + deliberation | ~100 dòng |
-| `backend/app/sim/agent_registry.py` | Registry mapping agent_id → paradigm metadata (cho paper) | ~50 dòng |
-
-## 🗂 Files cần sửa
-
-| File | Sửa gì |
-|---|---|
-| `engine.py` | Gọi BT navigator từ `_step_robot()`, gọi BDI deliberation |
-| `vlm.py` | Thêm CameraFSM class, multi-state transitions |
-| `main.py` | Thêm background task auto-polling VLM |
-
+| `backend/app/sim/bt_navigator.py` | Backend | Đã hoàn thành | Khung Behavior Tree và 26 nodes điều phối |
+| `backend/app/sim/bdi_robot.py` | Backend | Tạo mới | Mô hình BDI (Belief/Goal/Intention) cho AMR |
+| `backend/app/sim/engine.py` | Backend | Cập nhật | Tích hợp BDI Deliberation & Dynamic Weights |
+| `backend/app/ai/vlm.py` | Backend | Cập nhật | Thêm Camera 4-state FSM |
+| `backend/app/schema.py` | Contract | Cập nhật | Mở rộng TwinState schema cho BT, BDI, Camera FSM |
+| `frontend/src/schema/twin_state.ts` | Contract | Cập nhật | Đồng bộ TypeScript interface với Python schema |
+| `frontend/src/components/panels/RightPanels.tsx` | Frontend UI | Cập nhật | Thêm block hiển thị BT Node & BDI State cho Robot; FSM State cho Camera |
+| `frontend/src/components/ops/OpsDrawer.tsx` | Frontend UI | Cập nhật | Thêm hiển thị Dynamic Weights thích ứng bối cảnh |
+| `frontend/src/components/scene/Cameras.tsx` | Frontend UI | Cập nhật | Đổi màu 3D Frustum nón camera theo trạng thái FSM |
