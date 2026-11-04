@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ecore:EPackage xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:ecore="http://www.eclipse.org/emf/2002/Ecore" name="behavioralcore" nsURI="http://www.example.org/behavioralcore"
+    nsPrefix="bcore">
+
+  <!-- ==================== 1. ENUMS TƯỜNG MINH ==================== -->
+  <!-- Vai trò ngữ nghĩa của một Đơn vị hành vi (BehaviorUnit) -->
+  <eClassifiers xsi:type="ecore:EEnum" name="BehaviorRole">
+    <eLiterals name="GOAL_OBJECTIVE" value="0"/>
+    <eLiterals name="PLAN_PROCESS" value="1"/>
+    <eLiterals name="REACTIVE_STATE" value="2"/>
+    <eLiterals name="COMPOSITE_GROUP" value="3"/>
+  </eClassifiers>
+
+  <!-- Bản chất của mối liên kết giữa các BehaviorUnit (BehaviorLink) -->
+  <eClassifiers xsi:type="ecore:EEnum" name="BehaviorLinkType">
+    <eLiterals name="STATE_TRANSITION" value="0"/>
+    <eLiterals name="MEANS_END_LINK" value="1"/>
+    <eLiterals name="TASK_DECOMPOSITION" value="2"/>
+    <eLiterals name="PREEMPTIVE_INTERRUPT" value="3"/>
+  </eClassifiers>
+
+  <!-- Toán tử điều phối khi BehaviorUnit có vai trò là COMPOSITE_GROUP -->
+  <eClassifiers xsi:type="ecore:EEnum" name="ExecutionOperator">
+    <eLiterals name="SINGLE" value="0"/>
+    <eLiterals name="SEQUENTIAL" value="1"/>
+    <eLiterals name="PARALLEL" value="2"/>
+    <eLiterals name="FALLBACK_SELECTOR" value="3"/>
+  </eClassifiers>
+
+  <!-- Phân loại tác động của Hành động nguyên tử (AtomicAction) -->
+  <eClassifiers xsi:type="ecore:EEnum" name="ActionType">
+    <eLiterals name="UPDATE_VARIABLE" value="0"/>
+    <eLiterals name="EMIT_EVENT" value="1"/>
+    <eLiterals name="INVOKE_BEHAVIOR" value="2"/>
+    <eLiterals name="SEND_MESSAGE" value="3"/>
+    <eLiterals name="EXECUTE_DOMAIN_TASK" value="4"/>
+  </eClassifiers>
+
+  <!-- ==================== 2. ĐIỂM MỞ RỘNG (EXTENSION HOOKS) ==================== -->
+  <eClassifiers xsi:type="ecore:EClass" name="DomainExtension" abstract="true">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="name" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+  </eClassifiers>
+
+  <eClassifiers xsi:type="ecore:EClass" name="ReasoningProfile" abstract="true">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="name" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="selectionStrategy" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="governedUnits" upperBound="-1" eType="#//BehaviorUnit"/>
+  </eClassifiers>
+
+  <!-- ==================== 3. MÔ HÌNH GỐC (ROOT CONTAINER) ==================== -->
+  <eClassifiers xsi:type="ecore:EClass" name="BehavioralCore">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="agentName" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="version" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString" defaultValueLiteral="2.0"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="contextVariables" upperBound="-1" eType="#//ContextVariable" containment="true"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="stimulusEvents" upperBound="-1" eType="#//StimulusEvent" containment="true"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="behaviorUnits" upperBound="-1" eType="#//BehaviorUnit" containment="true"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="behaviorLinks" upperBound="-1" eType="#//BehaviorLink" containment="true"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="domainExtensions" upperBound="-1" eType="#//DomainExtension" containment="true"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="reasoningProfile" eType="#//ReasoningProfile" containment="true"/>
+  </eClassifiers>
+
+  <!-- ==================== 4. NGỮ CẢNH, SỰ KIỆN & ĐIỀU KIỆN LOGIC ==================== -->
+  <!-- Đại diện cho Belief (BDI), State Variable (FSM), hoặc Blackboard (BT) -->
+  <eClassifiers xsi:type="ecore:EClass" name="ContextVariable">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="name" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="dataType" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString" defaultValueLiteral="String"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="initialValue" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+  </eClassifiers>
+
+  <!-- Đại diện cho Tác nhân/Sự kiện kích hoạt từ môi trường hoặc nội bộ -->
+  <eClassifiers xsi:type="ecore:EClass" name="StimulusEvent">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="name" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="isExternal" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EBoolean" defaultValueLiteral="true"/>
+  </eClassifiers>
+
+  <!-- Biểu thức điều kiện logic kiểm tra trên các ContextVariable -->
+  <eClassifiers xsi:type="ecore:EClass" name="LogicalCondition">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="expression" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="evaluatedVariables" upperBound="-1" eType="#//ContextVariable"/>
+  </eClassifiers>
+
+  <!-- ==================== 5. ĐƠN VỊ HÀNH VI HỢP NHẤT (BEHAVIOR UNIT) ==================== -->
+  <eClassifiers xsi:type="ecore:EClass" name="BehaviorUnit">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="id" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString" iD="true"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="name" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="role" eType="#//BehaviorRole"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="executionOperator" eType="#//ExecutionOperator"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="isInitialUnit" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EBoolean" defaultValueLiteral="false"/>
+    <!-- Bộ 3 điều kiện chuẩn: Điều kiện vào (Pre), Điều kiện đích (Post), Điều kiện duy trì (Invariant) -->
+    <eStructuralFeatures xsi:type="ecore:EReference" name="preCondition" eType="#//LogicalCondition" containment="true"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="postCondition" eType="#//LogicalCondition" containment="true"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="invariantCondition" eType="#//LogicalCondition" containment="true"/>
+    <!-- Phân cấp đệ quy các đơn vị hành vi con -->
+    <eStructuralFeatures xsi:type="ecore:EReference" name="subUnits" upperBound="-1" eType="#//BehaviorUnit" containment="true"/>
+    <!-- Liên kết 2 chiều với BehaviorLink -->
+    <eStructuralFeatures xsi:type="ecore:EReference" name="outgoingLinks" upperBound="-1" eType="#//BehaviorLink" eOpposite="#//BehaviorLink/sourceUnit"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="incomingLinks" upperBound="-1" eType="#//BehaviorLink" eOpposite="#//BehaviorLink/targetUnit"/>
+    <!-- Các hành động nguyên tử thực thi bên trong đơn vị hành vi -->
+    <eStructuralFeatures xsi:type="ecore:EReference" name="internalActions" upperBound="-1" eType="#//AtomicAction" containment="true"/>
+  </eClassifiers>
+
+  <!-- ==================== 6. LIÊN KẾT NHÂN QUẢ & ĐIỀU HƯỚNG (BEHAVIOR LINK) ==================== -->
+  <eClassifiers xsi:type="ecore:EClass" name="BehaviorLink">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="name" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="linkType" eType="#//BehaviorLinkType"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="priority" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EInt" defaultValueLiteral="1"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="sourceUnit" lowerBound="1" eType="#//BehaviorUnit" eOpposite="#//BehaviorUnit/outgoingLinks"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="targetUnit" lowerBound="1" eType="#//BehaviorUnit" eOpposite="#//BehaviorUnit/incomingLinks"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="triggerEvent" eType="#//StimulusEvent"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="guardCondition" eType="#//LogicalCondition" containment="true"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="effectActions" upperBound="-1" eType="#//AtomicAction" containment="true"/>
+  </eClassifiers>
+
+  <!-- ==================== 7. HÀNH ĐỘNG THỰC THI NGUYÊN TỬ (ATOMIC ACTION) ==================== -->
+  <eClassifiers xsi:type="ecore:EClass" name="AtomicAction">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="name" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="actionType" eType="#//ActionType"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="parameters" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="targetVariable" eType="#//ContextVariable"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="targetBehavior" eType="#//BehaviorUnit"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="emittedEvent" eType="#//StimulusEvent"/>
+    <eStructuralFeatures xsi:type="ecore:EReference" name="domainTaskRef" eType="#//DomainExtension"/>
+  </eClassifiers>
+
+</ecore:EPackage>

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ecore:EPackage xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:ecore="http://www.eclipse.org/emf/2002/Ecore" name="waretwinreasoning" nsURI="http://www.example.org/waretwinreasoning"
+    nsPrefix="wres">
+
+  <eClassifiers xsi:type="ecore:EEnum" name="TaskPriorityLevel">
+    <eLiterals name="CRITICAL" value="0"/>
+    <eLiterals name="HIGH" value="1"/>
+    <eLiterals name="NORMAL" value="2"/>
+    <eLiterals name="LOW" value="3"/>
+  </eClassifiers>
+
+  <!-- 1. Hồ sơ suy luận cho từng Robot AMR (20 AMR dùng chung profile này) -->
+  <eClassifiers xsi:type="ecore:EClass" name="AMRAutonomousReasoningProfile"
+      eSuperTypes="platform:/resource/MetamodelBehavirolAg/model/metamodelBehavirolAg.ecore#//ReasoningProfile">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="idleParkTimeoutSec" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EInt" defaultValueLiteral="30"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="lowBatteryThreshold" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EInt" defaultValueLiteral="20"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="chargedResumeThreshold" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EInt" defaultValueLiteral="80"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="deadlockYieldWaitSec" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EInt" defaultValueLiteral="10"/>
+  </eClassifiers>
+
+  <!-- 2. Hồ sơ suy luận chấm điểm đa tiêu chí cho Fleet Manager -->
+  <eClassifiers xsi:type="ecore:EClass" name="FleetManagerScoringProfile"
+      eSuperTypes="platform:/resource/MetamodelBehavirolAg/model/metamodelBehavirolAg.ecore#//ReasoningProfile">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="priorityOrder" eType="#//TaskPriorityLevel" defaultValueLiteral="CRITICAL"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="weightDistance" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EFloat" defaultValueLiteral="0.35"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="weightBattery" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EFloat" defaultValueLiteral="0.25"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="weightWorkload" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EFloat" defaultValueLiteral="0.15"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="weightCongestion" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EFloat" defaultValueLiteral="0.15"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="weightRobotHealth" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EFloat" defaultValueLiteral="0.10"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="logDecisionRationale" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EBoolean" defaultValueLiteral="true"/>
+  </eClassifiers>
+
+</ecore:EPackage>

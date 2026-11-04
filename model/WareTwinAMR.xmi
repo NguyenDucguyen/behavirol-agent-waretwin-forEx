@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bcore:BehavioralCore xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:bcore="http://www.example.org/behavioralcore"
+    xmlns:wext="http://www.example.org/waretwinextension"
+    xmlns:wres="http://www.example.org/waretwinreasoning"
+    xsi:schemaLocation="http://www.example.org/behavioralcore platform:/resource/MetamodelBehavirolAg/model/metamodelBehavirolAg.ecore http://www.example.org/waretwinextension platform:/resource/MetamodelBehavirolAg/model/waretwinExtension.ecore http://www.example.org/waretwinreasoning platform:/resource/MetamodelBehavirolAg/model/waretwinReasoning.ecore"
+    agentName="WareTwin_AMR_StandardBehavior_Fleet20" version="2.0">
+    
+  <!-- ==================== 1. BIẾN NGỮ CẢNH CỦA AMR (CONTEXT VARIABLES) ==================== -->
+  <contextVariables name="amrState" dataType="String" initialValue="IDLE"/>
+  <contextVariables name="batteryPct" dataType="Int" initialValue="85"/>
+  <contextVariables name="idleTimerSec" dataType="Int" initialValue="0"/>
+  <contextVariables name="hasCargoLoaded" dataType="Boolean" initialValue="false"/>
+  <contextVariables name="crossFloorRequired" dataType="Boolean" initialValue="false"/>
+  <contextVariables name="chargerAvailable" dataType="Boolean" initialValue="true"/>
+  <contextVariables name="taskCompleted" dataType="Boolean" initialValue="false"/>
+
+  <!-- ==================== 2. SỰ KIỆN KÍCH HOẠT (STIMULUS EVENTS) ==================== -->
+  <stimulusEvents name="ev_idle_timeout_30s" isExternal="false"/>
+  <stimulusEvents name="ev_fleet_task_assigned" isExternal="true"/>
+  <stimulusEvents name="ev_lidar_obstacle_or_jam" isExternal="true"/>
+  <stimulusEvents name="ev_elevator_fault" isExternal="true"/>
+  <stimulusEvents name="ev_battery_insufficient_for_task" isExternal="false"/>
+  <stimulusEvents name="ev_battery_recharged_threshold" isExternal="false"/>
+  <stimulusEvents name="ev_robot_set_offline" isExternal="true"/>
+
+  <!-- ==================== 3. ĐƠN VỊ HÀNH VI CỦA AMR (BEHAVIOR UNITS) ==================== -->
+  <!-- Hành vi 1: Trạng thái IDLE (Chờ việc) -->
+  <behaviorUnits id="U_State_Idle" name="State_IDLE_WaitingForTask"
+      role="REACTIVE_STATE" isInitialUnit="true"
+      outgoingLinks="//@behaviorLinks.0 //@behaviorLinks.1 //@behaviorLinks.6"
+      incomingLinks="//@behaviorLinks.4 //@behaviorLinks.5">
+    <invariantCondition expression="amrState == 'IDLE'" evaluatedVariables="//@contextVariables.0"/>
+  </behaviorUnits>
+
+  <!-- Hành vi 1b: Tự đi đến điểm đỗ nếu rảnh quá 30 giây -->
+  <behaviorUnits id="U_State_Parking" name="State_IdleParking"
+      role="REACTIVE_STATE" incomingLinks="//@behaviorLinks.0" outgoingLinks="//@behaviorLinks.2">
+    <internalActions name="act_go_to_parking_bay" actionType="EXECUTE_DOMAIN_TASK"
+        domainTaskRef="//@domainExtensions.0"/>
+  </behaviorUnits>
+
+  <!-- Hành vi 2-5 (Mục tiêu BDI): Hoàn thành tác vụ kho (PICK / REPLENISH / TRANSPORT / RETURN) -->
+  <behaviorUnits id="U_Goal_ExecuteTask" name="Goal_CompleteAssignedWarehouseTask"
+      role="GOAL_OBJECTIVE"
+      incomingLinks="//@behaviorLinks.1 //@behaviorLinks.2 //@behaviorLinks.3 //@behaviorLinks.8"
+      outgoingLinks="//@behaviorLinks.4 //@behaviorLinks.7 //@behaviorLinks.9">
+    <postCondition expression="taskCompleted == true and hasCargoLoaded == false"
+        evaluatedVariables="//@contextVariables.6 //@contextVariables.3"/>
+  </behaviorUnits>
+
+  <!-- Kế hoạch A: Thực thi tác vụ cùng tầng (Tìm đường A* -> Lấy hàng -> Vận chuyển -> Giao hàng) -->
+  <behaviorUnits id="U_Plan_SingleFloor" name="Plan_SameFloorTransport"
+      role="PLAN_PROCESS" executionOperator="SEQUENTIAL"
+      outgoingLinks="//@behaviorLinks.3">
+    <preCondition expression="crossFloorRequired == false and batteryPct >= 20"
+        evaluatedVariables="//@contextVariables.4 //@contextVariables.1"/>
+    <internalActions name="step1_astar_to_source" actionType="EXECUTE_DOMAIN_TASK"
+        domainTaskRef="//@domainExtensions.1"/>
+    <internalActions name="step2_pickup_cargo" actionType="EXECUTE_DOMAIN_TASK"
+        domainTaskRef="//@domainExtensions.2"/>
+    <internalActions name="step3_update_loaded" actionType="UPDATE_VARIABLE"
+        parameters="hasCargoLoaded = true" targetVariable="//@contextVariables.3"/>
+    <internalActions name="step4_astar_to_dest" actionType="EXECUTE_DOMAIN_TASK"
+        domainTaskRef="//@domainExtensions.3"/>
+    <internalActions name="step5_deliver_cargo" actionType="EXECUTE_DOMAIN_TASK"
+        domainTaskRef="//@domainExtensions.4"/>
+    <internalActions name="step6_mark_completed" actionType="UPDATE_VARIABLE"
+        parameters="taskCompleted = true" targetVariable="//@contextVariables.6"/>
+  </behaviorUnits>
+
+  <!-- Hành vi 8 (Kế hoạch B - Tổ hợp phân cấp): Chu trình đi thang máy 5 bước (TO_LIFT -> QUEUED -> BOARDING -> RIDING -> ALIGHTING) -->
+  <behaviorUnits id="U_Composite_ElevatorTransit" name="Composite_MultiFloorElevatorSequence"
+      role="COMPOSITE_GROUP" executionOperator="SEQUENTIAL"
+      outgoingLinks="//@behaviorLinks.8">
+    <preCondition expression="crossFloorRequired == true and batteryPct >= 25"
+        evaluatedVariables="//@contextVariables.4 //@contextVariables.1"/>
+    <subUnits id="Sub_1_ToLift" name="Phase_TO_LIFT" role="REACTIVE_STATE">
+      <internalActions name="act_move_to_lift" actionType="EXECUTE_DOMAIN_TASK" domainTaskRef="//@domainExtensions.5"/>
+    </subUnits>
+    <subUnits id="Sub_2_Queued" name="Phase_QUEUED" role="REACTIVE_STATE"/>
+    <subUnits id="Sub_3_Boarding" name="Phase_BOARDING" role="REACTIVE_STATE"/>
+    <subUnits id="Sub_4_Riding" name="Phase_RIDING" role="REACTIVE_STATE"/>
+    <subUnits id="Sub_5_Alighting" name="Phase_ALIGHTING_AndReplanAStar" role="REACTIVE_STATE">
+      <internalActions name="act_exit_lift_replan" actionType="EXECUTE_DOMAIN_TASK" domainTaskRef="//@domainExtensions.6"/>
+    </subUnits>
+  </behaviorUnits>
+
+  <!-- Hành vi 6: Sạc pin và Bàn giao lại tác vụ về hàng đợi nếu đang làm việc dở -->
+  <behaviorUnits id="U_State_Charging" name="State_ChargingAndTaskHandoff"
+      role="REACTIVE_STATE"
+      incomingLinks="//@behaviorLinks.6 //@behaviorLinks.7"
+      outgoingLinks="//@behaviorLinks.5">
+    <internalActions name="act_handoff_and_charge" actionType="EXECUTE_DOMAIN_TASK"
+        domainTaskRef="//@domainExtensions.7"/>
+  </behaviorUnits>
+
+  <!-- Hành vi 9: Sự cố OFFLINE (Dừng khẩn cấp và trả tác vụ về hàng đợi xử lý lại) -->
+  <behaviorUnits id="U_State_Offline" name="State_OFFLINE_FaultStop"
+      role="REACTIVE_STATE" incomingLinks="//@behaviorLinks.9">
+    <internalActions name="act_requeue_on_offline" actionType="EXECUTE_DOMAIN_TASK"
+        domainTaskRef="//@domainExtensions.8"/>
+  </behaviorUnits>
+
+  <!-- ==================== 4. LIÊN KẾT NHÂN QUẢ & CHUYỂN TIẾP (BEHAVIOR LINKS) ==================== -->
+  <!-- 0. IDLE quá 30s -> Tự đi đỗ -->
+  <behaviorLinks name="Link_Idle30s_To_Park" linkType="STATE_TRANSITION" priority="2"
+      sourceUnit="U_State_Idle" targetUnit="U_State_Parking"
+      triggerEvent="//@stimulusEvents.0">
+    <guardCondition expression="idleTimerSec >= 30" evaluatedVariables="//@contextVariables.2"/>
+  </behaviorLinks>
+
+  <!-- 1. Nhận việc từ Fleet Manager khi đang IDLE -> Chuyển sang thực hiện Goal -->
+  <behaviorLinks name="Link_AssignTask_FromIdle" linkType="STATE_TRANSITION" priority="1"
+      sourceUnit="U_State_Idle" targetUnit="U_Goal_ExecuteTask"
+      triggerEvent="//@stimulusEvents.1">
+    <effectActions name="act_set_assigned" actionType="UPDATE_VARIABLE"
+        parameters="amrState = 'TASK_ASSIGNED'" targetVariable="//@contextVariables.0"/>
+  </behaviorLinks>
+
+  <!-- 2. Nhận việc khi đang đỗ -> Chuyển sang thực hiện Goal -->
+  <behaviorLinks name="Link_AssignTask_FromParking" linkType="STATE_TRANSITION" priority="1"
+      sourceUnit="U_State_Parking" targetUnit="U_Goal_ExecuteTask"
+      triggerEvent="//@stimulusEvents.1"/>
+
+  <!-- 3. Liên kết Means-End: Kế hoạch cùng tầng phục vụ Goal hoàn thành tác vụ -->
+  <behaviorLinks name="Link_SingleFloorPlan_To_Goal" linkType="MEANS_END_LINK" priority="1"
+      sourceUnit="U_Plan_SingleFloor" targetUnit="U_Goal_ExecuteTask"/>
+
+  <!-- 4. Hoàn tất giao hàng -> Quay về trạng thái IDLE -->
+  <behaviorLinks name="Link_TaskDone_ReturnIdle" linkType="STATE_TRANSITION" priority="1"
+      sourceUnit="U_Goal_ExecuteTask" targetUnit="U_State_Idle">
+    <guardCondition expression="taskCompleted == true" evaluatedVariables="//@contextVariables.6"/>
+    <effectActions name="act_reset_idle" actionType="UPDATE_VARIABLE"
+        parameters="amrState = 'IDLE'" targetVariable="//@contextVariables.0"/>
+  </behaviorLinks>
+
+  <!-- 5. Sạc đầy tới ngưỡng -> Quay lại trạng thái chờ IDLE -->
+  <behaviorLinks name="Link_Charged_ResumeIdle" linkType="STATE_TRANSITION" priority="1"
+      sourceUnit="U_State_Charging" targetUnit="U_State_Idle"
+      triggerEvent="//@stimulusEvents.5">
+    <guardCondition expression="batteryPct >= 80" evaluatedVariables="//@contextVariables.1"/>
+  </behaviorLinks>
+
+  <!-- 6. Pin thấp khi đang IDLE và có trạm trống -> Tự đi sạc -->
+  <behaviorLinks name="Link_LowBattery_FromIdle" linkType="STATE_TRANSITION" priority="1"
+      sourceUnit="U_State_Idle" targetUnit="U_State_Charging"
+      triggerEvent="//@stimulusEvents.4">
+    <guardCondition expression="batteryPct &lt; 20 and chargerAvailable == true"
+        evaluatedVariables="//@contextVariables.1 //@contextVariables.5"/>
+  </behaviorLinks>
+
+  <!-- 7. NGẮT KHẨN CẤP (Interrupt): Đang làm việc mà pin không đủ an toàn -> Bàn giao việc & Đi sạc -->
+  <behaviorLinks name="Link_MidTask_LowBatteryHandoff" linkType="PREEMPTIVE_INTERRUPT" priority="9"
+      sourceUnit="U_Goal_ExecuteTask" targetUnit="U_State_Charging"
+      triggerEvent="//@stimulusEvents.4"/>
+
+  <!-- 8. Liên kết Means-End: Chu trình đi thang máy đa tầng phục vụ Goal hoàn thành tác vụ -->
+  <behaviorLinks name="Link_ElevatorComposite_To_Goal" linkType="MEANS_END_LINK" priority="2"
+      sourceUnit="U_Composite_ElevatorTransit" targetUnit="U_Goal_ExecuteTask"/>
+
+  <!-- 9. NGẮT SỰ CỐ (Interrupt): Robot bị đưa về OFFLINE -> Dừng ngay & Trả việc về hàng đợi -->
+  <behaviorLinks name="Link_OfflineFault_Interrupt" linkType="PREEMPTIVE_INTERRUPT" priority="10"
+      sourceUnit="U_Goal_ExecuteTask" targetUnit="U_State_Offline"
+      triggerEvent="//@stimulusEvents.6"/>
+
+  <!-- ==================== 5. CÁC TÁC VỤ MỞ RỘNG MIỀN WARETWIN (DOMAIN EXTENSIONS) ==================== -->
+  <domainExtensions xsi:type="wext:AStarNavigationTask" name="Task0_MoveToParkingBay"
+      sourceNode="OUTBOUND" destinationNode="PARKING_BAY" trafficAware="true"/>
+
+  <domainExtensions xsi:type="wext:AStarNavigationTask" name="Task1_AStarToPickupSource"
+      sourceNode="PARKING_BAY" destinationNode="SHELF" trafficAware="true"
+      lidarCollisionResponse="DECELERATE_STOP_REPLAN_YIELD"/>
+
+  <domainExtensions xsi:type="wext:CargoHandlingTask" name="Task2_PickupAtSource"
+      taskCategory="PICK" isLoading="true" validateRulesPy="true"/>
+
+  <domainExtensions xsi:type="wext:AStarNavigationTask" name="Task3_AStarToDeliveryDest"
+      sourceNode="SHELF" destinationNode="PACKING_SORTING" trafficAware="true"
+      lidarCollisionResponse="DECELERATE_STOP_REPLAN_YIELD"/>
+
+  <domainExtensions xsi:type="wext:CargoHandlingTask" name="Task4_DropoffAtDest"
+      taskCategory="PICK" isLoading="false" validateRulesPy="true"/>
+
+  <domainExtensions xsi:type="wext:ElevatorTransitTask" name="Task5_EnterLiftLobby"
+      phase="TO_LIFT" rerouteOnLiftFault="true"/>
+
+  <domainExtensions xsi:type="wext:ElevatorTransitTask" name="Task6_AlightAndReplanAStar"
+      phase="ALIGHTING" rerouteOnLiftFault="true"/>
+
+  <domainExtensions xsi:type="wext:TaskHandoffAndChargeTask" name="Task7_HandoffTaskAndDockCharger"
+      returnTaskToQueue="true" connectToCharger="true"/>
+
+  <domainExtensions xsi:type="wext:TaskHandoffAndChargeTask" name="Task8_OfflineStopAndRequeue"
+      returnTaskToQueue="true" connectToCharger="false"/>
+
+  <!-- ==================== 6. CẤU HÌNH SUY LUẬN MỞ RỘNG (REASONING PROFILE) ==================== -->
+  <reasoningProfile xsi:type="wres:AMRAutonomousReasoningProfile" name="WareTwin_AMR_StandardProfile"
+      selectionStrategy="HYBRID_BDI_FSM_ASTAR"
+      governedUnits="U_State_Idle U_Goal_ExecuteTask U_Plan_SingleFloor U_Composite_ElevatorTransit"
+      idleParkTimeoutSec="30" lowBatteryThreshold="20"
+      chargedResumeThreshold="80" deadlockYieldWaitSec="10"/>
+
+</bcore:BehavioralCore>

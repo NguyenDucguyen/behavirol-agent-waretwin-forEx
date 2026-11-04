@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ecore:EPackage xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:ecore="http://www.eclipse.org/emf/2002/Ecore" name="waretwinextension" nsURI="http://www.example.org/waretwinextension"
+    nsPrefix="wext">
+
+  <!-- ==================== 1. ENUMS NGHIỆP VỤ WARETWIN (TỪ RULES.PY & ENGINE.PY) ==================== -->
+  <!-- 4 loại tác vụ kho chuẩn trong WareTwin -->
+  <eClassifiers xsi:type="ecore:EEnum" name="WarehouseTaskType">
+    <eLiterals name="PICK" value="0"/>
+    <eLiterals name="REPLENISH" value="1"/>
+    <eLiterals name="TRANSPORT" value="2"/>
+    <eLiterals name="RETURN" value="3"/>
+  </eClassifiers>
+
+  <!-- Các loại điểm nút (Node/Location) trong nhà kho theo rules.py -->
+  <eClassifiers xsi:type="ecore:EEnum" name="LocationNodeType">
+    <eLiterals name="SHELF" value="0"/>
+    <eLiterals name="INBOUND" value="1"/>
+    <eLiterals name="PACKING_SORTING" value="2"/>
+    <eLiterals name="OUTBOUND" value="3"/>
+    <eLiterals name="CHARGING_STATION" value="4"/>
+    <eLiterals name="PARKING_BAY" value="5"/>
+    <eLiterals name="ELEVATOR_LOBBY" value="6"/>
+  </eClassifiers>
+
+  <!-- Các giai đoạn trong chu trình đi thang máy của AMR -->
+  <eClassifiers xsi:type="ecore:EEnum" name="LiftPhase">
+    <eLiterals name="TO_LIFT" value="0"/>
+    <eLiterals name="QUEUED" value="1"/>
+    <eLiterals name="BOARDING" value="2"/>
+    <eLiterals name="RIDING" value="3"/>
+    <eLiterals name="ALIGHTING" value="4"/>
+  </eClassifiers>
+
+  <!-- Loại sự kiện nhận diện từ VLM Camera -->
+  <eClassifiers xsi:type="ecore:EEnum" name="VLMHazardType">
+    <eLiterals name="NONE" value="0"/>
+    <eLiterals name="HUMAN_DETECTED" value="1"/>
+    <eLiterals name="OBSTACLE" value="2"/>
+    <eLiterals name="LIQUID_SPILL" value="3"/>
+  </eClassifiers>
+
+<!-- ==================== 2. LỚP CƠ SỞ MỞ RỘNG MIỀN WARETWIN ==================== -->
+  <eClassifiers xsi:type="ecore:EClass" name="WareTwinDomainTask" abstract="true"
+      eSuperTypes="platform:/resource/MetamodelBehavirolAg/model/metamodelBehavirolAg.ecore#//DomainExtension">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="componentSource" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString" defaultValueLiteral="engine.py"/>
+  </eClassifiers>
+
+  <!-- ==================== 3. CÁC TÁC VỤ MIỀN CỦA ROBOT AMR ==================== -->
+  <!-- Tác vụ 1: Tìm đường A* và Di chuyển (Tính đến giao thông, tránh vật cản LiDAR, nhường đường) -->
+  <eClassifiers xsi:type="ecore:EClass" name="AStarNavigationTask" eSuperTypes="#//WareTwinDomainTask">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="sourceNode" eType="#//LocationNodeType"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="destinationNode" eType="#//LocationNodeType"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="trafficAware" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EBoolean" defaultValueLiteral="true"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="lidarCollisionResponse" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EString" defaultValueLiteral="DECELERATE_REPLAN_YIELD"/>
+  </eClassifiers>
+
+  <!-- Tác vụ 2: Lấy hàng (Pick/Load) và Giao hàng (Drop/Unload) tại điểm nút -->
+  <eClassifiers xsi:type="ecore:EClass" name="CargoHandlingTask" eSuperTypes="#//WareTwinDomainTask">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="taskCategory" eType="#//WarehouseTaskType"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="isLoading" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EBoolean" defaultValueLiteral="true"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="validateRulesPy" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EBoolean" defaultValueLiteral="true"/>
+  </eClassifiers>
+
+  <!-- Tác vụ 3: Điều khiển bước đi thang máy giữa các tầng & Đổi thang khi lỗi -->
+  <eClassifiers xsi:type="ecore:EClass" name="ElevatorTransitTask" eSuperTypes="#//WareTwinDomainTask">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="phase" eType="#//LiftPhase"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="rerouteOnLiftFault" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EBoolean" defaultValueLiteral="true"/>
+  </eClassifiers>
+
+  <!-- Tác vụ 4: Bàn giao lại việc về Hàng đợi (khi pin yếu không đủ làm tiếp hoặc khi OFFLINE) & Sạc pin -->
+  <eClassifiers xsi:type="ecore:EClass" name="TaskHandoffAndChargeTask" eSuperTypes="#//WareTwinDomainTask">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="returnTaskToQueue" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EBoolean" defaultValueLiteral="true"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="connectToCharger" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EBoolean" defaultValueLiteral="true"/>
+  </eClassifiers>
+
+  <!-- ==================== 4. CÁC TÁC VỤ MIỀN CỦA FLEET MANAGER & AI (VLM / COPILOT) ==================== -->
+  <!-- Tác vụ 5: VLM phân tích hình ảnh Camera (Nhận diện người, vật cản, chất tràn, khoanh vùng) -->
+  <eClassifiers xsi:type="ecore:EClass" name="VLMVisionAnalysisTask" eSuperTypes="#//WareTwinDomainTask">
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="detectedHazard" eType="#//VLMHazardType"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="confidenceThreshold" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EFloat" defaultValueLiteral="0.8"/>
+    <eStructuralFeatures xsi:type="ecore:EAttribute" name="autoBlockBoundingZone" eType="ecore:EDataType http://www.eclipse.org/emf/2002/Ecore#//EBoolean" defaultValueLiteral="false"/>
+  </eClassifiers>
+
+</ecore:EPackage>
