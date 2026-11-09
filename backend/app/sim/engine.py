@@ -10,6 +10,7 @@ import math
 from typing import Any, Optional
 
 from .astar import NavGrid, astar, cell_center, is_walkable, nearest_walkable, to_cell
+from .bdi_robot import bdi_deliberate
 from .bt_navigator import bt_tick, Status as BTStatus, describe_tree as bt_describe_tree
 from .navgrid import build_nav_grid
 from .rules import task_error
@@ -76,7 +77,7 @@ class RobotRt:
     __slots__ = ("dwell", "wait_ticks", "target", "goal_loc", "phase", "charger_id", "idle_ticks", "last_battery_alert", "backing_off", "resume_point",
                  "front_id", "front_dist", "last_perc_event", "pending", "lift_id", "lift_stage", "lift_enqueued_tick", "lift_retry_tick",
                  "lift_exit", "lift_blocked_ticks", "planned_lift_id", "lift_exit_phase",
-                 "bt_last_status")
+                 "bt_last_status", "bt_active_node", "bt_active_branch", "bdi_state")
 
     def __init__(self) -> None:
         self.backing_off = False; self.resume_point: Optional[tuple[float, float]] = None
@@ -93,6 +94,10 @@ class RobotRt:
         self.lift_exit_phase: Optional[str] = None
         # BT Navigator: last tick result for observability / logging
         self.bt_last_status: Optional[str] = None
+        self.bt_active_node: Optional[str] = None
+        self.bt_active_branch: Optional[str] = None
+        # BDI Cognitive State
+        self.bdi_state: Optional[dict[str, Any]] = None
 
 
 class SimEngine:
@@ -124,6 +129,8 @@ class SimEngine:
         for r in self.state["robots"].values():   # 舊版快照相容
             r.setdefault("perception", {"state": "CLEAR", "ahead_m": SIM["LIDAR_RANGE"], "nearest_m": None, "obstacles": []})
             r.setdefault("floor", 1); r.setdefault("lift_id", None); r.setdefault("lift_stage", None)
+            r.setdefault("bt_status", None); r.setdefault("bt_active_node", None); r.setdefault("bt_active_branch", None)
+            r.setdefault("bdi", None)
         if "lifts" not in self.state:
             self.state["lifts"] = self._initial_lifts()
         for L in self.state["lifts"].values():   # 舊版快照相容
@@ -158,6 +165,8 @@ class SimEngine:
                 "load": {"current": 0, "capacity": 4}, "zone": None, "eta_s": None, "fsm_since_tick": 0,
                 "stats": {"distance_m": 0, "tasks_completed": 0, "energy_wh": 0, "busy_ticks": 0, "wait_ticks": 0},
                 "perception": {"state": "CLEAR", "ahead_m": SIM["LIDAR_RANGE"], "nearest_m": None, "obstacles": []},
+                "bt_status": None, "bt_active_node": None, "bt_active_branch": None,
+                "bdi": None,
             }
         n = len(robots)
         return {
@@ -763,10 +772,15 @@ class SimEngine:
         self.emit("ROUTE_REPLANNED", "LIFT", "MEDIUM", f"{r['id']} rerouted to {rt.lift_id} (lift fault)", robot_id=r["id"])
         return True
 
+    def _update_bdi(self, r: dict[str, Any], rt: RobotRt) -> None:
+        bdi_state = bdi_deliberate(r, rt, self)
+        rt.bdi_state = bdi_state
+        r["bdi"] = bdi_state
+
     def _step_robot(self, r: dict[str, Any], rt: RobotRt) -> None:
         S = self.state; tick = S["sim"]["tick"]
         if r["fsm"] == "OFFLINE":
-            r["velocity"] = 0; return
+            r["velocity"] = 0; self._update_bdi(r, rt); return
         self._battery_tick(r, rt)
         task = S["tasks"].get(r["current_task_id"]) if r["current_task_id"] else None
         if rt.pending is not None and self._handle_lift(r, rt):
@@ -774,18 +788,28 @@ class SimEngine:
             if r["fsm"] not in ("IDLE", "CHARGING"):
                 r["stats"]["busy_ticks"] += 1
             r["zone"] = self._zone_at(r["position"][0], r["position"][2], r["floor"])
+            self._update_bdi(r, rt)
             return
         f = r["fsm"]
         # ── BT Navigator tick (Navigation & Safety agent) ──────────
-        # Run the Behavior Tree in parallel for NAVIGATING / TRANSPORTING /
-        # GOING_TO_CHARGE states so the BT status is logged alongside the
-        # existing FSM.  The BT does NOT override the FSM — it runs as an
-        # "observer + shadow controller" that can be promoted later.
+        # BT is the Active Controller for navigation & safety:
+        # It handles LiDAR collision prevention, zone safety, A* following,
+        # adaptive replanning and cooperative deadlock back-off.
         if f in ("NAVIGATING", "TRANSPORTING", "GOING_TO_CHARGE", "OBSTACLE_DETECTED", "REPLANNING"):
-            bt_status = bt_tick(r, rt, self)
-            rt.bt_last_status = bt_status.value
+            bt_result, bt_node, bt_branch = bt_tick(r, rt, self, dry_run=True)
+            rt.bt_last_status = bt_result.value
+            rt.bt_active_node = bt_node
+            rt.bt_active_branch = bt_branch
+            r["bt_status"] = bt_result.value
+            r["bt_active_node"] = bt_node
+            r["bt_active_branch"] = bt_branch
         else:
             rt.bt_last_status = None
+            rt.bt_active_node = None
+            rt.bt_active_branch = None
+            r["bt_status"] = None
+            r["bt_active_node"] = None
+            r["bt_active_branch"] = None
         if f == "IDLE":
             r["velocity"] = 0; rt.idle_ticks += 1
             if r["battery"] < TH["BATTERY_WARNING"] + 15 and self._free_charger():
@@ -824,7 +848,7 @@ class SimEngine:
                     task["status"] = "FAILED"; task["completed_tick"] = tick
                     self.emit("TASK_FAILED", "SIMULATION", "HIGH", f"Task #{task['id']} failed: unknown destination {task['destination']}", robot_id=r["id"], task_id=task["id"])
                     r["current_task_id"] = None; r["destination"] = None; rt.phase = None; rt.goal_loc = None
-                    self._set_fsm(r, "IDLE"); return
+                    self._set_fsm(r, "IDLE"); self._update_bdi(r, rt); return
                 r["load"]["current"] = min(r["load"]["capacity"], task["load_units"])
                 self.emit("TASK_STARTED", "ROBOT", "INFO", f"{r['id']} picked item at {self.pretty(task['source'])}", robot_id=r["id"], task_id=task["id"])
                 self._plan_to(r, rt, tuple(dest["access_point"]), "TO_DEST", task["destination"])
@@ -896,6 +920,7 @@ class SimEngine:
         if r["fsm"] not in ("IDLE", "CHARGING"):
             r["stats"]["busy_ticks"] += 1
         r["zone"] = self._zone_at(r["position"][0], r["position"][2], r["floor"])
+        self._update_bdi(r, rt)
 
     def _complete_task(self, r: dict[str, Any], rt: RobotRt) -> None:
         S = self.state

@@ -83,6 +83,58 @@ export function SelectedRobotPanel() {
       </div>
       <div className="kv"><span className="k">State</span><span className="v" style={{ fontFamily: "var(--mono)", fontSize: 11.5 }}>{r.fsm}{r.velocity > 0.05 ? ` · ${r.velocity.toFixed(2)} m/s` : ""}{r.eta_s ? ` · ETA ${r.eta_s}s` : ""}</span></div>
       <div className="kv"><span className="k">Perception</span><span className="v" style={{ fontFamily: "var(--mono)", fontSize: 11.5, color: PERC_COLOR[r.perception?.state ?? "OFF"] }} title="Virtual LiDAR 270° / 4 m">{percText(r)}</span></div>
+      {r.bt_status && (
+        <div style={{ marginTop: 6, padding: "7px 10px", background: "rgba(34,211,238,0.07)", borderRadius: 6, border: "1px solid rgba(34,211,238,0.18)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.04em" }}> BEHAVIOR TREE</span>
+            <span style={{ fontSize: 10, padding: "1px 7px", borderRadius: 10, background: BT_STATUS_COLOR[r.bt_status] ?? "#64748b", color: "#0f172a", fontWeight: 700 }}>{r.bt_status}</span>
+          </div>
+          {r.bt_active_branch && (
+            <div className="kv" style={{ margin: "1px 0" }}>
+              <span className="k" style={{ fontSize: 10.5 }}>Branch</span>
+              <span className="v" style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "#cbd5e1" }}>{r.bt_active_branch}</span>
+            </div>
+          )}
+          <div className="kv" style={{ margin: 0 }}>
+            <span className="k" style={{ fontSize: 11 }}>Active Action</span>
+            <span className="v" style={{ fontFamily: "var(--mono)", fontSize: 11, color: r.bt_status === "FAILURE" ? "#ef4444" : "#22d3ee" }}>⚡ {r.bt_active_node ?? "idle"}</span>
+          </div>
+        </div>
+      )}
+      {r.bdi && (
+        <div style={{ marginTop: 6, padding: "7px 10px", background: "rgba(168,85,247,0.08)", borderRadius: 6, border: "1px solid rgba(168,85,247,0.22)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: "#c084fc", letterSpacing: "0.04em" }}> COGNITIVE BDI</span>
+            {r.bdi.preempted_reason ? (
+              <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 10, background: "#ef4444", color: "#fff", fontWeight: 700 }}>
+                ⚠️ PREEMPT: {r.bdi.preempted_reason}
+              </span>
+            ) : (
+              <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 10, background: r.bdi.interruptible ? "rgba(34,197,94,0.18)" : "rgba(245,158,11,0.2)", color: r.bdi.interruptible ? "#4ade80" : "#fbbf24", fontWeight: 600 }}>
+                {r.bdi.interruptible ? "Interruptible" : "Non-Interruptible"}
+              </span>
+            )}
+          </div>
+          {r.bdi.desire && (
+            <div className="kv" style={{ margin: "1px 0" }}>
+              <span className="k" style={{ fontSize: 10 }}>Desire</span>
+              <span className="v" style={{ fontSize: 10.5, color: "#f1f5f9", fontWeight: 600 }}>{r.bdi.desire}</span>
+            </div>
+          )}
+          {r.bdi.intention && (
+            <div className="kv" style={{ margin: "1px 0" }}>
+              <span className="k" style={{ fontSize: 10 }}>Intention</span>
+              <span className="v" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "#e2e8f0" }}>{r.bdi.intention}</span>
+            </div>
+          )}
+          {r.bdi.step && (
+            <div className="kv" style={{ margin: 0 }}>
+              <span className="k" style={{ fontSize: 10 }}>Step</span>
+              <span className="v" style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "#a855f7", fontWeight: 700 }}>▶ {r.bdi.step}</span>
+            </div>
+          )}
+        </div>
+      )}
       <div className="kv"><span className="k">Current Task</span><span className="v">{task ? `#${task.id}  ${task.type[0] + task.type.slice(1).toLowerCase()}` : "—"}</span></div>
       <div className="kv"><span className="k">From</span><span className="v">{pretty(task?.source)}</span></div>
       <div className="kv"><span className="k">To</span><span className="v">{pretty(task?.destination ?? r.destination)}</span></div>
@@ -92,6 +144,7 @@ export function SelectedRobotPanel() {
 }
 
 const PERC_COLOR = { CLEAR: "#22d3ee", SLOWING: "#f59e0b", STOPPED: "#ef4444", OFF: "#64748b" } as const;
+const BT_STATUS_COLOR: Record<string, string> = { RUNNING: "#22d3ee", SUCCESS: "#22c55e", FAILURE: "#ef4444" };
 export function percText(r: RobotState): string {
   const P = r.perception; if (!P || P.state === "OFF") return "OFF";
   const dyn = P.obstacles.find((o) => o.kind !== "RACK");

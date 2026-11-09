@@ -252,6 +252,20 @@ class RobotState(_Base):
     fsm_since_tick: int = 0
     stats: RobotStats = Field(default_factory=RobotStats)
     perception: Perception = Field(default_factory=Perception)
+    # Navigation & Safety BT agent observability (Plan 1)
+    bt_status: Optional[Literal["RUNNING", "SUCCESS", "FAILURE"]] = None
+    bt_active_node: Optional[str] = None
+    bt_active_branch: Optional[str] = None
+    # Cargo AMR Hybrid BDI cognitive state observability (Plan 2)
+    bdi: Optional[RobotBdiState] = None
+
+
+class RobotBdiState(_Base):
+    desire: Optional[str] = None
+    intention: Optional[str] = None
+    step: Optional[str] = None
+    interruptible: bool = True
+    preempted_reason: Optional[str] = None
 
 
 # ─────────────────────────────────────────────────────────────

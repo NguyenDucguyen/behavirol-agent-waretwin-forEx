@@ -57,6 +57,9 @@ class Blackboard:
         # Action outputs (written by leaf nodes)
         self.action_result: Status = Status.SUCCESS
         self.dry_run: bool = True
+        # Active action node name & branch hierarchy for XAI audit
+        self.bt_active_node: Optional[str] = None
+        self.bt_active_branch: Optional[str] = None
 
     # ── convenience ────────────────────────────────────
     def snapshot(self) -> dict[str, Any]:
@@ -189,7 +192,9 @@ class SelectorNode(BTNode):
 # ═════════════════════════════════════════════════════════════════
 
 def _action_follow_path(bb: Blackboard) -> Status:
-    """Walk one tick along the A* path (delegates to engine._move_along_path)."""
+    """Drive one tick along path using SimEngine differential drive."""
+    bb.bt_active_node = "follow_path"
+    bb.bt_active_branch = "Navigate ➔ NormalNav"
     rt = bb.rt
     if rt is None or rt.target is None:
         return Status.SUCCESS               # already arrived
@@ -204,6 +209,8 @@ def _action_follow_path(bb: Blackboard) -> Status:
 
 def _action_replan_astar(bb: Blackboard) -> Status:
     """Recompute A* path to the same goal, skipping blocked cells."""
+    bb.bt_active_node = "replan_astar"
+    bb.bt_active_branch = "Navigate ➔ Replan"
     if bb.rt is None or bb.rt.target is None:
         return Status.FAILURE
     if bb.dry_run:
@@ -217,6 +224,8 @@ def _action_replan_astar(bb: Blackboard) -> Status:
         blocked=eng._blocked_cells(r["id"], r["floor"]),
         cost_map=eng._congestion_cost(r["floor"]),
     )
+    if path is None:
+        path = astar(eng.grids[r["floor"]], to_cell(r["position"][0], r["position"][2]), rt.target)
     if path is not None:
         r["path"] = [list(c) for c in path]
         r["path_index"] = 0
@@ -230,6 +239,8 @@ def _action_replan_astar(bb: Blackboard) -> Status:
 
 def _action_back_off(bb: Blackboard) -> Status:
     """Yield: move to a nearby empty cell, then resume."""
+    bb.bt_active_node = "back_off"
+    bb.bt_active_branch = "Navigate ➔ BackOff"
     if bb.dry_run:
         return Status.SUCCESS
     eng = bb.engine; r = bb.robot; rt = bb.rt
@@ -239,6 +250,8 @@ def _action_back_off(bb: Blackboard) -> Status:
 
 def _action_adjust_speed(bb: Blackboard) -> Status:
     """Reduce speed when LiDAR detects a nearby obstacle in SLOW zone."""
+    bb.bt_active_node = "adjust_speed"
+    bb.bt_active_branch = "SafetyLayer ➔ ClearPath"
     if bb.dry_run:
         return Status.SUCCESS
     r = bb.robot
@@ -249,30 +262,56 @@ def _action_adjust_speed(bb: Blackboard) -> Status:
 
 def _action_emergency_stop(bb: Blackboard) -> Status:
     """Full stop: obstacle within PERC_STOP distance."""
-    if bb.dry_run:
-        return Status.SUCCESS
+    bb.bt_active_node = "emergency_stop"
+    bb.bt_active_branch = "SafetyLayer ➔ LidarResponse"
     r = bb.robot
-    r["velocity"] = 0
-    r["perception"]["state"] = "STOPPED"
+    if r:
+        r["velocity"] = 0
+        r["perception"]["state"] = "STOPPED"
     return Status.SUCCESS
 
 
 def _action_idle(bb: Blackboard) -> Status:
     """Nothing to do — set velocity 0."""
+    if not bb.bt_active_node:
+        bb.bt_active_node = "idle"
+        bb.bt_active_branch = "Root ➔ Idle"
     if not bb.dry_run and bb.robot:
         bb.robot["velocity"] = 0
     return Status.SUCCESS
 
 
 def _action_wait_and_replan(bb: Blackboard) -> Status:
-    """Wait a bit, then try replanning — delegates to engine FSM transition."""
-    if not bb.dry_run and bb.engine and bb.robot:
-        bb.engine._set_fsm(bb.robot, "OBSTACLE_DETECTED")
-    return Status.SUCCESS
+    """Wait and decelerate while blocked — yields or triggers replan when timeout reached."""
+    bb.bt_active_node = "wait_and_replan"
+    bb.bt_active_branch = "Navigate ➔ FallbackWait"
+    r = bb.robot; rt = bb.rt; eng = bb.engine
+    if r:
+        r["velocity"] = 0
+    if rt and r:
+        rt.wait_ticks += 1
+        r["stats"]["wait_ticks"] += 1
+        # Check mutual standoff yielding (deadlock breaker)
+        if eng and rt.wait_ticks > 10:
+            nxt = r["path"][r["path_index"]] if r["path_index"] < len(r["path"]) else None
+            if nxt:
+                occ = eng.occupancy.get((r["floor"], nxt[0], nxt[1]))
+                other = eng.state["robots"].get(occ) if occ else None
+                from .astar import to_cell
+                my_cell = to_cell(r["position"][0], r["position"][2])
+                mutual = bool(other) and ((other["path_index"] < len(other["path"]) and tuple(other["path"][other["path_index"]]) == my_cell) or eng.rt[other["id"]].front_id == r["id"])
+                if mutual and eng._yields_to(r, other):
+                    eng._back_off(r, rt)
+                    return Status.SUCCESS
+        if not bb.dry_run and eng and rt.wait_ticks >= 25:
+            eng._set_fsm(r, "OBSTACLE_DETECTED")
+    return Status.RUNNING
 
 
 def _action_near_station_arrive(bb: Blackboard) -> Status:
     """Close enough to the station — mark as arrived."""
+    bb.bt_active_node = "near_station_arrive"
+    bb.bt_active_branch = "Navigate ➔ StationDock"
     if bb.dry_run:
         return Status.SUCCESS
     r = bb.robot; rt = bb.rt
@@ -322,7 +361,7 @@ def build_navigation_bt() -> BTNode:
     cond_has_task           = ConditionNode("has_task?",           lambda bb: bb.has_task)
     cond_has_path           = ConditionNode("has_path?",           lambda bb: bb.has_path)
     cond_path_clear         = ConditionNode("path_clear?",         lambda bb: bb.path_clear)
-    cond_zone_not_blocked   = ConditionNode("zone_not_blocked?",   lambda bb: not bb.zone_blocked)
+    cond_zone_blocked       = ConditionNode("zone_blocked_ahead?", lambda bb: bb.zone_blocked)
     cond_lidar_clear        = ConditionNode("lidar_clear?",        lambda bb: bb.lidar_clear)
     cond_lidar_ok           = ConditionNode("lidar_ok_or_slow?",   lambda bb: bb.lidar_clear or bb.lidar_slow)
     cond_near_station       = ConditionNode("near_station?",       lambda bb: bb.near_station)
@@ -341,25 +380,24 @@ def build_navigation_bt() -> BTNode:
 
     # ── Composite tree (bottom-up construction) ──
 
-    # Safety layer: check zone + LiDAR before allowing navigation
+    # Safety layer: LiDAR reflex response before movement
     lidar_response = SelectorNode("LidarResponse", [
         SequenceNode("ClearPath", [cond_lidar_clear, act_adjust_speed]),
         act_emergency_stop,
     ])
 
     safety_layer = SequenceNode("SafetyLayer", [
-        cond_zone_not_blocked,
         lidar_response,
         cond_lidar_ok,              # pass-through: if we're SLOWING we can still navigate
     ])
 
-    # Navigation fallback chain
+    # Navigation fallback chain (standard Nav2 Recovery pattern)
     navigate = SelectorNode("Navigate", [
-        SequenceNode("NormalNav",         [cond_path_clear, act_follow_path]),
+        SequenceNode("NormalNav",         [cond_has_path, act_follow_path]),
         SequenceNode("NearStationArrive", [cond_near_station, act_near_arrive]),
-        SequenceNode("Replan",            [cond_wait_replan, act_replan]),
         SequenceNode("BackOff",           [cond_wait_backoff, act_back_off]),
-        act_wait_replan,                  # last-resort: trigger FSM OBSTACLE_DETECTED
+        SequenceNode("Replan",            [cond_wait_replan, act_replan]),
+        act_wait_replan,                  # last-resort: decelerate, yield, or trigger FSM
     ])
 
     # Main mission sequence
@@ -417,9 +455,13 @@ def populate_blackboard(bb: Blackboard, r: dict[str, Any], rt: Any, engine: Any)
     perc_stop = rt.front_id is not None and rt.front_dist < SIM["PERC_STOP"]
     bb.path_clear = not nxt_blocked and not perc_stop
 
-    # Zone safety
-    zone_id = r.get("zone")
-    bb.zone_blocked = zone_id in engine.blocked_zones if zone_id else False
+    # Zone safety: next step enters a blocked zone (from outside)
+    bb.zone_blocked = False
+    if bb.has_path and engine.blocked_zones:
+        nxt = r["path"][r["path_index"]]
+        nxt_zone = engine._zone_at(nxt[0] + 0.5, nxt[1] + 0.5, r["floor"])
+        if nxt_zone in engine.blocked_zones and r.get("zone") != nxt_zone:
+            bb.zone_blocked = True
 
     # LiDAR
     bb.lidar_clear = rt.front_id is None or rt.front_dist >= SIM["PERC_STOP"]
@@ -436,15 +478,15 @@ def populate_blackboard(bb: Blackboard, r: dict[str, Any], rt: Any, engine: Any)
     bb.wait_ticks = rt.wait_ticks
 
 
-def bt_tick(r: dict[str, Any], rt: Any, engine: Any, dry_run: bool = True) -> Status:
-    """Run one BT tick for a robot. Returns the root status."""
+def bt_tick(r: dict[str, Any], rt: Any, engine: Any, dry_run: bool = True) -> tuple[Status, Optional[str], Optional[str]]:
+    """Run one BT tick for a robot. Returns (root_status, active_action_node_name, active_branch_path)."""
     tree = _get_tree()
     tree.reset()
     bb = Blackboard()
     bb.dry_run = dry_run
     populate_blackboard(bb, r, rt, engine)
     status = tree.tick(bb)
-    return status
+    return status, bb.bt_active_node, bb.bt_active_branch
 
 
 # ═════════════════════════════════════════════════════════════════

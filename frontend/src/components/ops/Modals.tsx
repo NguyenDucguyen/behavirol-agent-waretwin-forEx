@@ -210,6 +210,21 @@ function RobotDetail() {
           <div><KV k="Current Task" v={task ? `#${task.id} ${task.type} (${task.priority})` : "—"} /><KV k="From" v={pretty(task?.source ?? null)} /><KV k="Destination" v={pretty(task?.destination ?? r.destination)} /><KV k="Load" v={`${r.load.current} / ${r.load.capacity}`} /><KV k="ETA" v={r.eta_s !== null ? `${r.eta_s} s` : "—"} /><KV k="Path" v={`${r.path.length - r.path_index} cells left`} /></div>
           <div><KV k="Tasks completed" v={r.stats.tasks_completed} /><KV k="Distance" v={`${r.stats.distance_m.toFixed(0)} m`} /><KV k="Energy" v={`${r.stats.energy_wh.toFixed(0)} Wh`} /><KV k="Busy" v={`${(r.stats.busy_ticks / 10).toFixed(0)} s`} /><KV k="Waiting" v={`${(r.stats.wait_ticks / 10).toFixed(0)} s`} /><KV k="Position" v={`${r.position[0].toFixed(1)}, ${r.position[2].toFixed(1)}`} /></div>
         </div>
+        {r.bdi && (
+          <div style={{ marginTop: 10, padding: "8px 12px", background: "rgba(168,85,247,0.08)", borderRadius: 6, border: "1px solid rgba(168,85,247,0.22)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#c084fc", letterSpacing: "0.04em" }}> COGNITIVE BDI MENTAL STATE</span>
+              <span style={{ fontSize: 10, padding: "1px 8px", borderRadius: 10, background: r.bdi.preempted_reason ? "#ef4444" : r.bdi.interruptible ? "rgba(34,197,94,0.2)" : "rgba(245,158,11,0.2)", color: r.bdi.preempted_reason ? "#fff" : r.bdi.interruptible ? "#4ade80" : "#fbbf24", fontWeight: 700 }}>
+                {r.bdi.preempted_reason ? `⚠️ PREEMPTED: ${r.bdi.preempted_reason}` : r.bdi.interruptible ? "INTERRUPTIBLE" : "NON-INTERRUPTIBLE"}
+              </span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: 10, fontSize: 11 }}>
+              <div><span style={{ color: "#94a3b8" }}>Desire:</span> <span style={{ fontWeight: 600, color: "#f8fafc" }}>{r.bdi.desire}</span></div>
+              <div><span style={{ color: "#94a3b8" }}>Intention:</span> <code style={{ color: "#e2e8f0" }}>{r.bdi.intention}</code></div>
+              <div><span style={{ color: "#94a3b8" }}>Step:</span> <span style={{ color: "#a855f7", fontWeight: 700 }}>▶ {r.bdi.step}</span></div>
+            </div>
+          </div>
+        )}
         <h4 className="drawer-sub">Recent events</h4>
         <table className="dt full"><tbody>{mine.map((e) => <tr key={e.id}><td>{tickToClock(e.tick, 100, true)}</td><td className={"sev-" + e.severity}>{e.severity}</td><td style={{ fontFamily: "var(--font)" }}>{e.message}</td></tr>)}</tbody></table>
       </div>
