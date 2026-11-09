@@ -194,6 +194,20 @@ export interface RobotState {
   };
   /** Phase 7：虛擬 LiDAR（270° / 4 m）感知與局部避障狀態 */
   perception: Perception;
+  /** Navigation & Safety BT agent observability (Plan 1) */
+  bt_status?: "RUNNING" | "SUCCESS" | "FAILURE" | null;
+  bt_active_node?: string | null;
+  bt_active_branch?: string | null;
+  /** Cargo AMR Hybrid BDI cognitive state observability (Plan 2) */
+  bdi?: RobotBdiState | null;
+}
+
+export interface RobotBdiState {
+  desire?: string | null;
+  intention?: string | null;
+  step?: string | null;
+  interruptible?: boolean;
+  preempted_reason?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────

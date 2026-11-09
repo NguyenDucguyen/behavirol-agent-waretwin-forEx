@@ -11,9 +11,9 @@ Kiểm tra đối chiếu giữa **Metamodel Core (`metamodelBehavirolAg.ecore`)
 
 | Agent | Trường phái Suy luận | Trạng thái Backend | Trạng thái UI | Mức độ thiếu hụt |
 |---|---|---|---|---|
-| **1. Cargo AMR Robot** | **Hybrid BDI + FSM** | 🟡 Có FSM, thiếu BDI data model tường minh | 🔴 Chỉ hiện FSM thô (`NAVIGATING`) | Thiếu Intentions stack & UI Mental State |
+| **1. Cargo AMR Robot** | **Hybrid BDI + FSM** | 🟢 Đã tạo `bdi_robot.py` (Belief-Desire-Intention) | 🟢 Đã hiển thị BDI Mental State & Preemption trên UI | Hoàn thành ✅ |
 | **2. Fleet Manager** | **Utility-Based Optimization** | 🟢 Đầy đủ scoring function & decision log | 🟢 Đã có `OpsDrawer` hiển thị score & lý do | Thiếu Dynamic Adaptive Weights & UI Profile |
-| **3. Navigation & Safety** | **Behavior Tree (BT)** | 🟢 Đã tạo `bt_navigator.py` (26 nodes) | 🔴 Chưa hiển thị cây BT lên UI | Cần gắn Active BT Node lên Robot Inspector |
+| **3. Navigation & Safety** | **Behavior Tree (BT)** | 🟢 Đã tạo `bt_navigator.py` (26 nodes) | 🟢 Đã hiển thị Active BT Branch & Leaf Action trên UI | Hoàn thành ✅ |
 | **4. Surveillance Camera** | **Reactive FSM / VLM** | 🟡 Có VLM mock/real, nhưng FSM chỉ 2 state | 🟡 Có Live Panel nhưng FSM chỉ hiện ONLINE/OFFLINE | Thiếu Multi-state FSM (`ALERT_MODE`, `TRACKING`) |
 
 ---
@@ -36,21 +36,30 @@ Kiểm tra đối chiếu giữa **Metamodel Core (`metamodelBehavirolAg.ecore`)
 
 ---
 
-### Giai đoạn 1 — Navigation & Safety Agent (Behavior Tree)
+### Giai đoạn 1 — Navigation & Safety Agent (Behavior Tree) ✅ [HOÀN THÀNH]
 
 **Trường phái**: Behavior Tree (BT)  
 **Metamodel Core**: `COMPOSITE_GROUP`, `FALLBACK_SELECTOR`, `SEQUENTIAL`, `subUnits`, `LogicalCondition`
 
-#### 1. Backend & Schema Implementation
-* **Backend (`app/sim/bt_navigator.py` - Đã có)**:
+#### 1. Backend & Schema Implementation (Đã hoàn thành)
+* **Backend (`app/sim/bt_navigator.py`)**:
   * 26 nodes: `NavSafetyRoot` (`FALLBACK_SELECTOR`) ➔ `ExecuteMission` (`SEQUENTIAL`) ➔ `SafetyLayer` & `Navigate`.
   * Hỗ trợ `dry_run=True` (Shadow mode / Observer) và `dry_run=False` (Active Controller).
+  * `bt_tick()` trả về `(Status, active_node_name)`.
+  * `SimEngine._step_robot()` gọi `bt_tick()` cho robot đang di chuyển/sạc/tránh cản và ghi nhận `bt_status`, `bt_active_node`.
 * **Schema Contract (`app/schema.py` & `frontend/src/schema/twin_state.ts`)**:
-  * Thêm vào `RobotState`:
+  * Đã mở rộng `RobotState`:
     ```python
-    bt_status: Optional[str] = None       # "RUNNING", "SUCCESS", "FAILURE"
-    bt_active_node: Optional[str] = None  # "follow_path", "emergency_stop", "replan_astar", "back_off"
+    bt_status: Optional[Literal["RUNNING", "SUCCESS", "FAILURE"]] = None
+    bt_active_node: Optional[str] = None
     ```
+* **Unit Testing (`backend/tests/test_bt_navigator.py`)**:
+  * 4 tests chuyên biệt đã pass (BT Tree introspection, idle tick, navigating tick, engine step + schema validation).
+
+#### 2. Frontend UI Observability (Đã hoàn thành)
+* **Vị trí**: `frontend/src/components/panels/RightPanels.tsx` ➔ `SelectedRobotPanel`.
+* Đã tích hợp khối quan sát Behavior Tree: hiển thị chip `RUNNING` / `SUCCESS` / `FAILURE` cùng node đang thực thi `⚡ active_node` live khi người dùng click vào bất kỳ robot nào trên 3D scene.
+* Đã kiểm tra build frontend: `npm run build` (tsc + vite) thành công không lỗi.
 
 #### 2. Frontend UI Observability (Hiển thị lên màn hình)
 * **Vị trí**: Panel bên phải khi click chọn Robot (`frontend/src/components/panels/RightPanels.tsx` ➔ `SelectedRobotPanel`).
@@ -76,45 +85,41 @@ Kiểm tra đối chiếu giữa **Metamodel Core (`metamodelBehavirolAg.ecore`)
 
 ---
 
-### Giai đoạn 2 — Cargo AMR Robot (Hybrid BDI + FSM)
+### Giai đoạn 2 — Cargo AMR Robot (Hybrid BDI + FSM) ✅ [HOÀN THÀNH]
 
 **Trường phái**: Hybrid BDI (Belief-Desire-Intention) + Finite State Machine  
 **Metamodel Core**: `GOAL_OBJECTIVE`, `PLAN_PROCESS`, `MEANS_END_LINK`, `PREEMPTIVE_INTERRUPT`
 
-#### 1. Backend & Schema Implementation
+#### 1. Backend & Schema Implementation (Đã hoàn thành)
 * **Tạo file mới**: `backend/app/sim/bdi_robot.py`
-  * `Belief`: `{position, battery, current_load, nearby_obstacles, zone_congestions}`.
-  * `Goal` (`GOAL_OBJECTIVE`): `{task_id, goal_type: "DELIVER" | "CHARGE" | "PARK", priority}`.
-  * `Intention` (`PLAN_PROCESS`): `{plan_id: "Plan_SameFloorTransport", steps: [...], current_step, interruptible: bool}`.
-  * `bdi_deliberate(beliefs, desires) -> Intention`: Vòng lặp suy luận BDI chọn kế hoạch trước khi giao cho FSM thực thi từng bước.
+  * `Beliefs`: Nhận thức vị trí, pin, tải trọng, FSM, thông tin nhiệm vụ, tầng lầu, trạng thái thang máy.
+  * `Goal` (`GOAL_OBJECTIVE`): `DELIVER_CARGO`, `RECHARGE_BATTERY`, `PARK_AT_STATION`, `STANDBY`.
+  * `Intention` (`PLAN_PROCESS`): `Plan_SameFloorTransport`, `Plan_CrossFloorTransport`, `Plan_TaskHandoffAndCharge`, `Plan_ProactiveCharge`, `Plan_ParkStandby`, `Plan_IdleStandby`.
+  * `bdi_deliberate(r, rt, engine) -> dict`: Vòng lặp suy luận nhận thức BDI chọn kế hoạch trước khi giao cho FSM thực thi từng bước.
 * **Schema Contract (`app/schema.py` & `twin_state.ts`)**:
-  * Bổ sung trường `bdi` trong `RobotState`:
+  * Đã bổ sung `RobotBdiState` và trường `bdi` trong `RobotState`:
     ```python
-    bdi: Optional[dict[str, Any]] = None
-    # {
-    #   "desire": "Complete Task #A3812",
-    #   "intention": "Plan_SameFloorTransport",
-    #   "step": "PICKING (2/5)",
-    #   "interruptible": True,
-    #   "preempted_reason": None  # "LOW_BATTERY" | "OBSTACLE_JAM"
-    # }
+    class RobotBdiState(_Base):
+        desire: Optional[str] = None
+        intention: Optional[str] = None
+        step: Optional[str] = None
+        interruptible: bool = True
+        preempted_reason: Optional[str] = None
     ```
+* **Unit Testing (`backend/tests/test_bdi_robot.py`)**:
+  * 6 tests chuyên biệt đã pass 100% (idle standby, same-floor delivery, cross-floor transport, low-battery preemption, proactive charging, Pydantic strict schema validation).
 
-#### 2. Frontend UI Observability (Hiển thị lên màn hình)
-* **Vị trí**: Panel bên phải (`SelectedRobotPanel`) và Hộp thoại chi tiết Robot (`Modals.tsx` ➔ `RobotModal`).
-* **UI Mockup**:
-  ```
-  ┌──────────────────────────────────────────────┐
-  │ 🧠 COGNITIVE STATE (HYBRID BDI)              │
-  │ • Desire (Goal): Complete Task #A3812        │
-  │ • Intention: Plan_SameFloorTransport         │
-  │ • Step: [1. Move] ➔ [▶ 2. Pick] ➔ [3. Trans] │
-  │ • Interruptible: YES                         │
-  └──────────────────────────────────────────────┘
-  ```
+#### 2. Frontend UI Observability (Đã hoàn thành)
+* **Vị trí**: Panel bên phải (`SelectedRobotPanel`) và Hộp thoại chi tiết Robot (`Modals.tsx` ➔ `RobotDetail`).
+* **UI Thực tế**:
+  * Hiển thị Card `🧠 COGNITIVE BDI` với màu tím nhận thức `#c084fc`.
+  * Hiển thị Badge `[ Interruptible ]` (màu xanh lá) hoặc `[ Non-Interruptible ]` (màu vàng khi đang bốc dỡ hàng tại trạm hoặc trong thang máy).
+  * Hiển thị mục tiêu Desire: `Complete Task #3812 (PICK · CRITICAL)`.
+  * Hiển thị kế hoạch Intention: `Plan_SameFloorTransport` / `Plan_CrossFloorTransport`.
+  * Hiển thị bước hiện tại Step: `▶ 2/4 PICK_CARGO`.
 * **Khi bị ngắt quyền ưu tiên (`PREEMPTIVE_INTERRUPT`)**:
-  * Khi pin < 20%: Badge chuyển màu đỏ nhấp nháy: `⚠️ PREEMPTIVE INTERRUPT: LOW_BATTERY`.
-  * Intention đổi thành: `Plan_TaskHandoffAndCharge` ➔ Tự động trả Task về hàng đợi và đi sạc.
+  * Khi pin < 20%: Badge chuyển màu đỏ cảnh báo: `⚠️ PREEMPT: LOW_BATTERY`.
+  * Intention đổi thành: `Plan_TaskHandoffAndCharge` ➔ Tự động bàn giao nhiệm vụ và đi sạc.
 
 ---
 
