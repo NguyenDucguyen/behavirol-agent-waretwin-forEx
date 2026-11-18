@@ -6,7 +6,7 @@ participant AA as AtomicAction
 participant IS as InteractionSignal
 participant CV_S as ContextVariable<br/>(Sender)
 
-    participant Broker as MASCommunicationBroker<br/>(Runtime Engine)
+    participant Broker as MASCommunication<br/>(Runtime Engine)
 
     participant BC_R as BehavioralCore<br/>(Receiver)
     participant SE as StimulusEvent

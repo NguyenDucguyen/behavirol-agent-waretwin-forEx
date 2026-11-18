@@ -3,7 +3,7 @@ sequenceDiagram
 autonumber
 participant BC_S as BehavioralCore<br/>(Sender)
 participant IS as InteractionSignal<br/>(mode=PROXIMITY_RANGE)
-participant Broker as MASCommunicationBroker
+participant Broker as MASCommunication
 participant BC_R1 as BehavioralCore<br/>(Receiver - In Range)
 participant BC_R2 as BehavioralCore<br/>(Receiver - Out of Range)
 
